@@ -1,0 +1,1 @@
+task1捕获Lmin50Lmax55命令：tcp.port == 9000 && ip.addr == 192.168.232.128
