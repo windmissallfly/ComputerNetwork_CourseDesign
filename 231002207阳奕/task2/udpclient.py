@@ -19,6 +19,10 @@ FLAG_FIN = 0x8
 
 
 class GBNClient:
+
+    # udpclient.py代码中没有显式绑定端口（GBNClient类初始化时没有调用bind()）
+    # 但是为了确保客户端知道自己要连接哪个服务器，所以必须显示指定一个监听端口，所有客户端线程共享这个端口
+    # 所以当一个客户端第一次发送数据时，操作系统会自动分配一个临时端口给这个客户端，与其他客户端区分开
     def __init__(self, server_ip, server_port, timeout=0.3, loss_rate=0.3):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.settimeout(timeout)  # 设置接收超时时间
@@ -40,12 +44,27 @@ class GBNClient:
         self.finish_event = threading.Event()
         self.receiver_thread = None
 
+    def _send_packet(self, seq, ack, flags, data):
+        """发送控制包（SYN/ACK/FIN）"""
+        timestamp = int(time.time() * 1e6)  # 微秒
+        packet_length = len(data)
+        header = struct.pack(HEADER_FMT, seq, ack, flags, timestamp, packet_length)
+        packet = header + data
+
+        # 模拟丢包
+        if random.random() < self.loss_rate and flags != FLAG_SYN:  # SYN包不模拟丢包
+            print(f"模拟丢包: seq={seq}, flags={flags}")
+            return
+
+        self.sock.sendto(packet, self.server_addr)
+        print(f"发送包信息: seq={seq}, ack={ack}, flags={flags}, size={packet_length}")
+
     def connect(self):
         """建立连接（三次握手）"""
         syn_timeout = 1.0  # SYN超时时间稍长
 
         # 第一次握手：发送SYN
-        print("Sending SYN to server...")
+        print("发送SYN给服务器...")
         self._send_packet(seq=0, ack=0, flags=FLAG_SYN, data=b'')
         self.expected_ack = 1  # 期望的确认号
 
@@ -62,17 +81,17 @@ class GBNClient:
                 # 检查是否是有效的SYN-ACK
                 if flags & FLAG_SYN and flags & FLAG_ACK and ack == self.expected_ack:
                     # 第三次握手：发送ACK
-                    print(f"Received SYN-ACK, seq={seq}, ack={ack}")
+                    print(f"接收SYN-ACK, seq={seq}, ack={ack}")
                     self._send_packet(seq=1, ack=seq + 1, flags=FLAG_ACK, data=b'')
                     self.is_connected = True
-                    print("Connection established")
+                    print("连接建立")
 
                     # 初始化序列号
                     self.base_seq = 1
                     self.next_seq = 1
                     return True
             except socket.timeout:
-                print("Timeout waiting for SYN-ACK, retrying...")
+                print("等待SYN-ACK超时，重试...")
                 self._send_packet(seq=0, ack=0, flags=FLAG_SYN, data=b'')
 
         return False
@@ -154,6 +173,12 @@ class GBNClient:
         packet_length = len(data_chunk)
         header = struct.pack(HEADER_FMT, self.next_seq, 0, FLAG_DATA, timestamp, packet_length)
         packet = header + data_chunk
+
+        # 模拟丢包
+        if random.random() < self.loss_rate:
+            print(f"模拟数据包丢包: seq={self.next_seq}")
+            return
+
         self.sock.sendto(packet, self.server_addr)
 
         # 记录已发送但未确认的包
@@ -245,11 +270,11 @@ class GBNClient:
                             avg_rtt = sum(self.rtt_samples) / len(self.rtt_samples)
                             self.timeout = max(0.1, avg_rtt * 5 / 1000)  # 转换为秒
                             print(
-                                f"Updated timeout to {self.timeout * 1000:.2f}ms based on average RTT {avg_rtt:.2f}ms")
+                                f"更新超时时间为{self.timeout * 1000:.2f}ms 基于{avg_rtt:.2f}ms的平均RTT")
 
                         # 计算并打印当前时间（HH:MM:SS格式）
                         current_time = time.strftime("%H-%M-%S")
-                        print(f"Server time: {current_time}")
+                        print(f"当前服务器时间: {current_time}")
 
             except socket.timeout:
                 # 超时是正常现象，继续等待
@@ -261,7 +286,7 @@ class GBNClient:
     def generate_report(self):
         """生成传输报告"""
         if not self.packet_info:
-            print("No packets sent, cannot generate report")
+            print("没有包发送，无法生成报告")
             return
 
         # 计算丢包率（重传包占总发送包的比例）
@@ -280,20 +305,20 @@ class GBNClient:
             max_rtt = min_rtt = avg_rtt = std_rtt = 0
 
         # 打印报告
-        print("\n====== Transmission Report ======")
-        print(f"Total packets sent: {total_packets_sent}")
-        print(f"Total retransmissions: {total_retransmissions}")
-        print(f"Packet loss rate: {loss_rate:.2f}%")
-        print(f"Maximum RTT: {max_rtt:.2f}ms")
-        print(f"Minimum RTT: {min_rtt:.2f}ms")
-        print(f"Average RTT: {avg_rtt:.2f}ms")
-        print(f"RTT Standard Deviation: {std_rtt:.2f}ms")
+        print("\n----- 传输接收报告 -----")
+        print(f"发送包总量: {total_packets_sent}")
+        print(f"发送包丢失数量: {total_retransmissions}")
+        print(f"丢包率: {loss_rate:.2f}%")
+        print(f"最大RTT: {max_rtt:.2f}ms")
+        print(f"最小RTT: {min_rtt:.2f}ms")
+        print(f"平均RTT: {avg_rtt:.2f}ms")
+        print(f"RTT标准差: {std_rtt:.2f}ms")
 
 
 def main():
     # 命令行参数: python udpclient.py <server_ip> <server_port> [loss_rate] [timeout]
     if len(sys.argv) < 3:
-        print("Usage: python udpclient.py <server_ip> <server_port> [loss_rate=0.3] [timeout=0.3]")
+        print("命令: python/python3 udpclient.py <server_ip> <server_port> [loss_rate=0.3] [timeout=0.3]")
         return
 
     server_ip = sys.argv[1]

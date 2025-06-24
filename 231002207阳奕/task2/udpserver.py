@@ -4,7 +4,7 @@ import random
 import sys
 import threading
 
-# 自定义协议头部格式
+# 自定义协议首部格式
 HEADER_FMT = ">IIBQH"  # 序列号(4字节) + 确认号(4字节) + 标志(1字节) + 时间戳(8字节) + 数据长度(2字节)
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
@@ -26,7 +26,7 @@ class UDPServer:
 
     def start(self):
         """启动UDP服务器"""
-        print(f"Server started on port {self.sock.getsockname()[1]}")
+        print(f"服务器在{self.sock.getsockname()[1]}端口启动")
 
         while self.running:
             try:
@@ -35,7 +35,7 @@ class UDPServer:
                 threading.Thread(target=self.handle_client, args=(data, addr)).start()
             except Exception as e:
                 if self.running:
-                    print(f"Server error: {e}")
+                    print(f"服务器异常: {e}")
                 break
 
     def stop(self):
@@ -89,7 +89,7 @@ class UDPServer:
             ack_num = client_state['next_seq']
             self.send_syn_ack(addr, client_state, ack_num)
             client_state['connected'] = True
-            print(f"Connection established with {addr}")
+            print(f"与 {addr} 建立连接")
 
     def send_syn_ack(self, addr, client_state, ack_num):
         """发送SYN-ACK包"""
@@ -107,11 +107,11 @@ class UDPServer:
         """处理数据包"""
         # 模拟丢包
         if random.random() < self.loss_rate:
-            print(f"Dropping packet from {addr}, seq={seq} (simulated loss)")
+            print(f"丢包 {addr}, 第{seq}个 (模拟丢包)")
             return
 
         # 打印接收信息
-        print(f"Received packet from {addr}, seq={seq}, length={len(payload)}")
+        print(f"收到包 {addr}, 第{seq}个, 长度为 {len(payload)}")
 
         # 更新服务器序列号（对于累积确认）
         client_state['server_seq'] += 1
@@ -147,13 +147,13 @@ class UDPServer:
             0  # 数据长度
         )
         self.sock.sendto(header, addr)
-        print(f"Connection closed with {addr}")
+        print(f"与 {addr} 关闭连接")
 
 
 def main():
     # 命令行参数: python udpserver.py <port> [loss_rate]
     if len(sys.argv) < 2:
-        print("Usage: python udpserver.py <port> [loss_rate=0.3]")
+        print("正确命令: python/python3 udpserver.py <port> [loss_rate=0.3]")
         return
 
     port = int(sys.argv[1])
@@ -164,7 +164,7 @@ def main():
     try:
         server.start()
     except KeyboardInterrupt:
-        print("Stopping server...")
+        print("停止服务器...")
         server.stop()
 
 
