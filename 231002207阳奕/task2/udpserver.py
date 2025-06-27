@@ -2,17 +2,19 @@ import socket
 import struct
 import random
 import sys
+import time
 import threading
 
 # 自定义协议首部格式
-HEADER_FMT = ">IIBQH"  # 序列号(4字节) + 确认号(4字节) + 标志(1字节) + 时间戳(8字节) + 数据长度(2字节)
-HEADER_SIZE = struct.calcsize(HEADER_FMT)
+# I：4字节，B：1字节，Q：8字节，H：2字节
+header_Format = ">IIBQH"  # 序列号(4字节) + 确认号(4字节) + 标志(1字节) + 时间戳(8字节) + 数据长度(2字节)
+header_Size = struct.calcsize(header_Format)
 
 # 标志位定义
-FLAG_SYN = 0x1
-FLAG_ACK = 0x2
-FLAG_DATA = 0x4
-FLAG_FIN = 0x8
+flag_SYN = 0x1
+flag_ACK = 0x2
+flag_DATA = 0x4
+flag_FIN = 0x8
 
 
 class UDPServer:
@@ -45,13 +47,13 @@ class UDPServer:
 
     def handle_client(self, data, addr):
         """处理客户端请求"""
-        if len(data) < HEADER_SIZE:
+        if len(data) < header_Size:
             return
 
         # 解析包头
-        header = data[:HEADER_SIZE]
-        payload = data[HEADER_SIZE:]
-        seq, ack, flags, ts, data_len = struct.unpack(HEADER_FMT, header)
+        header = data[:header_Size]
+        payload = data[header_Size:]
+        seq, ack, flags, ts, data_len = struct.unpack(header_Format, header)
         payload = payload[:data_len]
 
         # 检查连接状态
@@ -67,15 +69,15 @@ class UDPServer:
         client_state = self.connections[addr]
 
         # 处理SYN标志
-        if flags & FLAG_SYN:
+        if flags & flag_SYN:
             return self.handle_syn(addr, client_state, seq)
 
         # 处理数据包
-        if flags & FLAG_DATA:
+        if flags & flag_DATA:
             return self.handle_data(addr, client_state, seq, payload)
 
         # 处理FIN标志
-        if flags & FLAG_FIN:
+        if flags & flag_FIN:
             self.send_fin_ack(addr, client_state, seq)
             # 移除客户端状态
             if addr in self.connections:
@@ -94,10 +96,10 @@ class UDPServer:
     def send_syn_ack(self, addr, client_state, ack_num):
         """发送SYN-ACK包"""
         header = struct.pack(
-            HEADER_FMT,
+            header_Format,
             client_state['server_seq'],
             ack_num,
-            FLAG_SYN | FLAG_ACK,
+            flag_SYN | flag_ACK,
             0,  # 时间戳
             0  # 数据长度
         )
@@ -125,12 +127,13 @@ class UDPServer:
 
     def send_ack(self, addr, client_state, ack_num):
         """发送ACK包"""
+        time_stamp = int(time.time() * 1e6)
         header = struct.pack(
-            HEADER_FMT,
+            header_Format,
             client_state['server_seq'],
             ack_num,
-            FLAG_ACK,
-            0,  # 时间戳
+            flag_ACK,
+            time_stamp,  # 时间戳
             0  # 数据长度
         )
         self.sock.sendto(header, addr)
@@ -139,10 +142,10 @@ class UDPServer:
         """处理FIN并发送ACK"""
         ack_num = seq + 1
         header = struct.pack(
-            HEADER_FMT,
+            header_Format,
             client_state['server_seq'],
             ack_num,
-            FLAG_ACK,
+            flag_ACK,
             0,  # 时间戳
             0  # 数据长度
         )
